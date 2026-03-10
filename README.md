@@ -60,3 +60,37 @@ python -m src.verify_setup
 You should see "ALL CHECKS PASSED."
 
 ## Project Structure
+
+```
+RecipeRAG/
+├── src/                    # Core RAG pipeline
+│   ├── init.py
+│   └── verify_setup.py    # Phase 1 verification
+├── data_processing/        # Data cleaning scripts
+│   └── init.py
+├── app/                    # Streamlit chat UI
+│   └── init.py
+├── data/                   # Raw + processed data (gitignored)
+├── docker-compose.yml      # PostgreSQL + pgvector
+├── requirements.txt        # Pinned dependencies
+├── .env.example            # Environment variable template
+├── .gitignore
+└── README.md
+```
+## Useful Commands
+```bash
+# Start the database
+docker compose up -d
+
+# Stop the database (data is preserved)
+docker compose down
+
+# Stop and DELETE all data
+docker compose down -v && rm -rf pgdata/
+
+# View database logs
+docker compose logs -f db
+
+# Connect to the database directly
+docker exec -it reciperag-db psql -U reciperag -d reciperag
+```
