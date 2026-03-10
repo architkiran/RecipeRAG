@@ -1,0 +1,26 @@
+# ── RAG Orchestration ──────────────────────────────
+langchain==0.3.25
+langchain-community==0.3.24
+langchain-huggingface==0.1.2
+
+# ── LLM Gateway (OpenRouter via OpenAI-compatible API) ─
+openai==1.78.1
+
+# ── Embeddings (runs locally, 100% free) ───────────
+sentence-transformers==3.4.1
+
+# ── Database ───────────────────────────────────────
+psycopg2-binary==2.9.10
+pgvector==0.3.6
+sqlalchemy==2.0.41
+
+# ── Data Processing ────────────────────────────────
+pandas==2.2.3
+beautifulsoup4==4.13.4
+
+# ── UI ─────────────────────────────────────────────
+streamlit==1.45.1
+
+# ── Utilities ──────────────────────────────────────
+python-dotenv==1.1.0
+tqdm==4.67.1

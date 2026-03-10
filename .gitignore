@@ -1,0 +1,31 @@
+# ── Python ─────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ── Environment / Secrets ─────────────────────────
+.env
+
+# ── Data (too large for Git) ──────────────────────
+data/
+
+# ── IDE ────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Docker ─────────────────────────────────────────
+pgdata/
+
+# ── OS ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Model cache (sentence-transformers downloads) ─
+.cache/
