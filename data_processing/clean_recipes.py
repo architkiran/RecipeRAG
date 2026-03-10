@@ -20,7 +20,7 @@ from pathlib import Path
 # ── Configuration ──────────────────────────────────
 RAW_DATA_PATH = Path("data/RAW_recipes.csv")
 CLEAN_DATA_PATH = Path("data/recipes_clean.csv")
-SAMPLE_SIZE = 1000          # Start small. Increase later if you want.
+SAMPLE_SIZE = 5000          # Start small. Increase later if you want.
 MAX_COOK_MINUTES = 360      # Cap at 6 hours — anything beyond is likely data entry error
 RANDOM_SEED = 42            # For reproducible sampling
 

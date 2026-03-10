@@ -1,13 +1,13 @@
 """
-llm.py — LLM integration via OpenRouter.
+llm.py — LLM integration via OpenRouter (with conversation memory).
 
 Connects to OpenRouter's free tier using the OpenAI-compatible API.
-Handles retries, rate limits, and model fallback.
+Handles retries, rate limits, model fallback, and conversation history.
 
 Usage:
     from src.llm import RecipeLLM
     llm = RecipeLLM()
-    response = llm.generate("What can I make with chicken and rice?", context="...")
+    response = llm.generate("What about a vegan version?", context="...", history=[...])
 """
 
 import os
@@ -21,7 +21,6 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Primary and fallback models (all free on OpenRouter)
 PRIMARY_MODEL = os.getenv("LLM_MODEL", "openrouter/free")
 FALLBACK_MODELS = [
     "meta-llama/llama-3.3-70b-instruct:free",
@@ -29,8 +28,11 @@ FALLBACK_MODELS = [
     "nvidia/nemotron-3-nano-30b-a3b:free",
 ]
 
-# ── System Prompt ──────────────────────────────────
-# This tells the LLM how to behave. It's critical for getting good answers.
+# How many previous messages to include as context
+# Each message pair (user + assistant) uses ~500-1000 tokens
+# Free models typically have 4K-8K token limits, so we keep it short
+MAX_HISTORY_MESSAGES = 6  # 3 pairs of user/assistant
+
 SYSTEM_PROMPT = """You are RecipeRAG, a helpful cooking assistant that answers questions about recipes.
 
 RULES:
@@ -40,6 +42,8 @@ RULES:
 4. Keep answers conversational, helpful, and concise (2-4 paragraphs max).
 5. If asked about cook times, ingredients, or steps, be specific using the data provided.
 6. Format recipe names in bold when mentioning them.
+7. If the user asks a follow-up question (like "what about vegetarian?" or "anything faster?"),
+   use the conversation history to understand what they're referring to.
 
 When listing recipes, use this format:
 - **Recipe Name** (cook time, calories) — brief description
@@ -49,12 +53,10 @@ When listing recipes, use this format:
 class RecipeLLM:
     """
     LLM wrapper for generating answers from recipe context.
-
-    Uses OpenRouter's free tier with automatic retry and model fallback.
+    Now supports conversation history for follow-up questions.
     """
 
     def __init__(self):
-        """Initialize the OpenRouter client."""
         if not OPENROUTER_API_KEY:
             raise ValueError(
                 "OPENROUTER_API_KEY not found in .env file!\n"
@@ -68,20 +70,27 @@ class RecipeLLM:
         self.model = PRIMARY_MODEL
         print(f"  [✓] LLM initialized (model: {self.model})")
 
-    def generate(self, user_query: str, context: str, max_retries: int = 3) -> str:
+    def generate(
+        self,
+        user_query: str,
+        context: str,
+        history: list[dict] = None,
+        max_retries: int = 3,
+    ) -> str:
         """
-        Generate an answer using the LLM with recipe context.
+        Generate an answer using the LLM with recipe context and conversation history.
 
         Parameters:
-            user_query: The user's original question
+            user_query: The user's current question
             context: Formatted recipe context from the retriever
+            history: List of previous messages [{"role": "user"/"assistant", "content": "..."}]
             max_retries: Number of retry attempts on failure
 
         Returns:
             The LLM's response as a string
         """
-        # Build the prompt with context
-        user_message = f"""Based on the following recipes from our database, answer the user's question.
+        # Build the current user message with recipe context
+        current_message = f"""Based on the following recipes from our database, answer the user's question.
 
 RECIPES FROM DATABASE:
 {context}
@@ -90,7 +99,23 @@ USER QUESTION: {user_query}
 
 Remember: Only use information from the recipes above. Cite recipe names when referencing them."""
 
-        # Try with primary model, then fallbacks
+        # Build the full message list
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        # Add conversation history (trimmed to last N messages)
+        if history:
+            # Only include the last MAX_HISTORY_MESSAGES messages
+            recent_history = history[-MAX_HISTORY_MESSAGES:]
+            for msg in recent_history:
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"],
+                })
+
+        # Add the current query
+        messages.append({"role": "user", "content": current_message})
+
+        # Try models with retry logic
         models_to_try = [self.model] + FALLBACK_MODELS
 
         for model in models_to_try:
@@ -98,65 +123,67 @@ Remember: Only use information from the recipes above. Cite recipe names when re
                 try:
                     response = self.client.chat.completions.create(
                         model=model,
-                        messages=[
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": user_message},
-                        ],
+                        messages=messages,
                         max_tokens=1024,
-                        temperature=0.7,  # Slightly creative but mostly factual
+                        temperature=0.7,
                     )
                     return response.choices[0].message.content
 
                 except Exception as e:
                     error_msg = str(e)
 
-                    # Rate limit — wait and retry
                     if "rate" in error_msg.lower() or "429" in error_msg:
-                        wait_time = 2 ** attempt  # Exponential backoff: 1, 2, 4 sec
+                        wait_time = 2 ** attempt
                         print(f"  Rate limited. Waiting {wait_time}s... (attempt {attempt+1})")
                         time.sleep(wait_time)
                         continue
 
-                    # Model not available — try next model
                     if "not available" in error_msg.lower() or "404" in error_msg:
                         print(f"  Model {model} unavailable, trying next...")
-                        break  # Break inner retry loop, try next model
+                        break
 
-                    # Other error — retry
                     print(f"  LLM error (attempt {attempt+1}): {error_msg[:100]}")
                     if attempt < max_retries - 1:
                         time.sleep(1)
 
-        return "I'm sorry, I couldn't generate a response right now. The free LLM tier may be temporarily unavailable. Please try again in a moment."
+        return ("I'm sorry, I couldn't generate a response right now. "
+                "The free LLM tier may be temporarily unavailable. "
+                "Please try again in a moment.")
 
 
 def main():
-    """Test the LLM with a sample prompt."""
-    print("Testing LLM connection via OpenRouter...")
+    print("Testing LLM with conversation memory...")
 
     llm = RecipeLLM()
 
-    test_context = """
+    context = """
 Recipe 1: Cashew Chicken Stir Fry
-- Cook time: 40 minutes
-- Calories: 299
+- Cook time: 40 minutes, Calories: 299
 - Ingredients: chicken breast, cashews, soy sauce, garlic, ginger, vegetables
-- Steps: Stir fry chicken, add vegetables, toss with sauce and cashews
 
-Recipe 2: Quick Mushroom Supreme
-- Cook time: 10 minutes
-- Calories: 129
-- Ingredients: mushrooms, cream, garlic, butter, parsley
-- Steps: Sauté mushrooms in butter, add cream and garlic, simmer
+Recipe 2: Vegetable Tofu Stir Fry
+- Cook time: 25 minutes, Calories: 180
+- Ingredients: tofu, bell peppers, broccoli, soy sauce, sesame oil
+- Dietary: vegetarian, vegan
 """
 
-    test_query = "Which of these recipes would be good for a quick weeknight dinner?"
+    # Simulate a conversation
+    history = []
 
-    print(f"\n  Query: {test_query}")
-    print(f"  Generating response...\n")
+    query1 = "What stir fry recipes do you have?"
+    print(f"\n  You: {query1}")
+    response1 = llm.generate(query1, context, history)
+    print(f"  Bot: {response1}")
 
-    response = llm.generate(test_query, test_context)
-    print(f"  Response:\n  {response}")
+    # Add to history
+    history.append({"role": "user", "content": query1})
+    history.append({"role": "assistant", "content": response1})
+
+    # Follow-up question
+    query2 = "What about a vegetarian version?"
+    print(f"\n  You: {query2}")
+    response2 = llm.generate(query2, context, history)
+    print(f"  Bot: {response2}")
 
 
 if __name__ == "__main__":
