@@ -6,6 +6,8 @@ Defines the recipes table with:
 - A vector(384) column for semantic similarity search
 - An HNSW index for fast approximate nearest-neighbor queries
 
+Supports both Neon (via DATABASE_URL) and local PostgreSQL.
+
 Usage:
     python -m src.db_schema          # Creates/resets the table
     python -m src.db_schema --drop   # Drops the table entirely
@@ -13,18 +15,38 @@ Usage:
 
 import sys
 import psycopg2
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
 
-DB_CONFIG = {
-    "host": os.getenv("POSTGRES_HOST", "localhost"),
-    "port": os.getenv("POSTGRES_PORT", "5432"),
-    "dbname": os.getenv("POSTGRES_DB", "reciperag"),
-    "user": os.getenv("POSTGRES_USER", "reciperag"),
-    "password": os.getenv("POSTGRES_PASSWORD", "reciperag_dev_password"),
-}
+
+def parse_database_url(url: str) -> dict:
+    """Parse a PostgreSQL connection URL into psycopg2 config dict."""
+    parsed = urlparse(url)
+    return {
+        "host": parsed.hostname,
+        "port": parsed.port or 5432,
+        "dbname": parsed.path.lstrip("/"),
+        "user": parsed.username,
+        "password": parsed.password,
+    }
+
+
+# Try to use Neon DATABASE_URL first, fallback to individual POSTGRES_* variables
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    DB_CONFIG = parse_database_url(DATABASE_URL)
+else:
+    # Fallback for local PostgreSQL
+    DB_CONFIG = {
+        "host": os.getenv("POSTGRES_HOST", "localhost"),
+        "port": int(os.getenv("POSTGRES_PORT", "5432")),
+        "dbname": os.getenv("POSTGRES_DB", "reciperag"),
+        "user": os.getenv("POSTGRES_USER", "reciperag"),
+        "password": os.getenv("POSTGRES_PASSWORD", "reciperag_dev_password"),
+    }
 
 # ── Embedding dimensions (must match your model) ──
 # all-MiniLM-L6-v2 outputs 384-dimensional vectors
